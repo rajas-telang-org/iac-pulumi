@@ -26,6 +26,11 @@ const privateSubAssociationPrefix = config.require(
 );
 const numOfSubnets = config.require("num_of_subnets");
 
+const ssh_port = config.require("ssh_port");
+const HTTP_port = config.require("http-port");
+const HTTPS_port = config.require("https-port");
+const App_port = config.require("app-port");
+
 const vpc = new aws.ec2.Vpc(VPcNAme, {
   cidrBlock: VPcCidr,
   tags: {
@@ -52,12 +57,16 @@ const availability_zone = pulumi.output(
 const publicSubnets = [];
 const privateSubnets = [];
 
-let numSubnets;
-if (availability_zone.length <= numOfSubnets) {
-  numSubnets = availability_zone.length;
-} else {
-  numSubnets = numOfSubnets;
-}
+//  let numSubnets;
+// if (availability_zone.length <= numOfSubnets) {
+//   numSubnets = availability_zone.length;
+// } else {
+//   numSubnets = numOfSubnets;
+// }
+
+availabilityZones.apply((azs) => {
+  const numSubnets = Math.min(azs.length, numOfSubnets);
+});
 
 // Create 3 public and 3 private subnets in specified availability zones.
 for (let i = 0; i < numSubnets; i++) {
@@ -127,3 +136,35 @@ for (let i = 0; i < privateSubnets.length; i++) {
     }
   );
 }
+
+let appSecurityGroup = new aws.ec2.SecurityGroup("app-security-group", {
+  description: "Enables access to application ports",
+  ingress: [
+    {
+      protocol: "tcp",
+      fromPort: ssh_port,
+      toPort: ssh_port,
+      cidrBlocks: [internetgtCidr],
+    }, // SSH
+    {
+      protocol: "tcp",
+      fromPort: HTTP_port,
+      toPort: HTTP_port,
+      cidrBlocks: [internetgtCidr],
+    }, // HTTP
+    {
+      protocol: "tcp",
+      fromPort: HTTPS_port,
+      toPort: HTTPS_port,
+      cidrBlocks: [internetgtCidr],
+    }, // HTTPS
+    {
+      protocol: "tcp",
+      fromPort: App_port,
+      toPort: App_port,
+      cidrBlocks: [internetgtCidr],
+    }, // App Port
+  ],
+});
+
+exports.securityGroupName = appSecurityGroup.name;

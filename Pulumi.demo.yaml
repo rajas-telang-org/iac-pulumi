@@ -1,6 +1,6 @@
-encryptionsalt: v1:uBYHcKjA9vk=:v1:ovt8QfDrF/C/Pm30:ooCO0cHVRzmr53JkqSeKEe/r9YgVog==
+encryptionsalt: v1:QFsxnQSUKVY=:v1:MXdclKmCfY8ZICR0:6ylkRYjfNTJHB4uoBdDmN/NUpSTc1Q==
 config:
-  aws:profile: dev
+  aws:profile: demo
   aws:region: us-east-1
   iac-pulumi:num_of_subnets: 3
   iac-pulumi:vpc-cidr-block: 10.0.0.0/18
@@ -15,7 +15,3 @@ config:
   iac-pulumi:public-route-name: public-route
   iac-pulumi:public-SubAssociationPrefix: public-subnet-assn-
   iac-pulumi:private-SubAssociationPrefix: private-subnet-assn-
-  iac-pulumi:ssh-port: 22
-  iac-pulumi:http-port: 80
-  iac-pulumi:https-port: 443
-  iac-pulumi:app-port: 8080

@@ -26,10 +26,14 @@ const privateSubAssociationPrefix = config.require(
 );
 const numOfSubnets = config.require("num_of_subnets");
 
-const ssh_port = config.require("ssh_port");
+const ssh_port = config.require("ssh-port");
 const HTTP_port = config.require("http-port");
 const HTTPS_port = config.require("https-port");
 const App_port = config.require("app-port");
+
+const keyName = config.require("key-name");
+const instanceType = config.require("instance-type");
+const amiID = config.require("ami-ID");
 
 const vpc = new aws.ec2.Vpc(VPcNAme, {
   cidrBlock: VPcCidr,
@@ -57,16 +61,16 @@ const availability_zone = pulumi.output(
 const publicSubnets = [];
 const privateSubnets = [];
 
-//  let numSubnets;
-// if (availability_zone.length <= numOfSubnets) {
-//   numSubnets = availability_zone.length;
-// } else {
-//   numSubnets = numOfSubnets;
-// }
+let numSubnets;
+if (availability_zone.length <= numOfSubnets) {
+  numSubnets = availability_zone.length;
+} else {
+  numSubnets = numOfSubnets;
+}
 
-availabilityZones.apply((azs) => {
-  const numSubnets = Math.min(azs.length, numOfSubnets);
-});
+// availabilityZones.apply((azs) => {
+//   const numSubnets = Math.min(azs.length, numOfSubnets);
+// });
 
 // Create 3 public and 3 private subnets in specified availability zones.
 for (let i = 0; i < numSubnets; i++) {
@@ -138,6 +142,7 @@ for (let i = 0; i < privateSubnets.length; i++) {
 }
 
 let appSecurityGroup = new aws.ec2.SecurityGroup("app-security-group", {
+  vpcId: vpc.id,
   description: "Enables access to application ports",
   ingress: [
     {
@@ -168,3 +173,29 @@ let appSecurityGroup = new aws.ec2.SecurityGroup("app-security-group", {
 });
 
 exports.securityGroupName = appSecurityGroup.name;
+
+const publicSubnetID = publicSubnets.publicSubnet;
+// Creating the EC2 instance
+const instance = new aws.ec2.Instance("webapp", {
+  // Use custom AMI provided through configuration
+  ami: amiID,
+  vpcSecurityGroupIds: [appSecurityGroup.id],
+  instanceType: instanceType,
+  subnetId: publicSubnets[0].id,
+  ebsBlockDevices: [
+    {
+      deviceName: "/dev/xvda",
+      volumeSize: 25,
+      volumeType: "gp2",
+      deleteOnTermination: true,
+    },
+  ],
+  disableApiTermination: false,
+
+  keyName: keyName,
+  // Associate public IP address with instance within the VPC
+  associatePublicIpAddress: true,
+  tags: {
+    Name: "Cloud_WebApp_Instance",
+  },
+});

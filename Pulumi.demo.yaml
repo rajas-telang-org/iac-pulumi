@@ -15,3 +15,10 @@ config:
   iac-pulumi:public-route-name: public-route
   iac-pulumi:public-SubAssociationPrefix: public-subnet-assn-
   iac-pulumi:private-SubAssociationPrefix: private-subnet-assn-
+  iac-pulumi:ssh-port: 22
+  iac-pulumi:http-port: 80
+  iac-pulumi:https-port: 443
+  iac-pulumi:app-port: 8080
+  iac-pulumi:ami-ID: ami-0f702ec4372da9737
+  iac-pulumi:key-name: ssh-key
+  iac-pulumi:instance-type: t2.micro

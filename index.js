@@ -35,6 +35,13 @@ const keyName = config.require("key-name");
 const instanceType = config.require("instance-type");
 const amiID = config.require("ami-ID");
 
+const mysql_port = config.require("mysql-port");
+const db_name = config.require("db-name");
+const db_engine = config.require("db-engine");
+const db_engine_V = config.require("db-engine_version");
+const db_pass = config.require("db-password");
+const db_username = config.require("db-username");
+
 const vpc = new aws.ec2.Vpc(VPcNAme, {
   cidrBlock: VPcCidr,
   tags: {
@@ -170,9 +177,101 @@ let appSecurityGroup = new aws.ec2.SecurityGroup("app-security-group", {
       cidrBlocks: [internetgtCidr],
     }, // App Port
   ],
+  egress: [
+    {
+      fromPort: mysql_port,
+      toPort: mysql_port,
+      protocol: "tcp",
+      cidrBlocks: [internetgtCidr],
+    },
+  ],
 });
 
 exports.securityGroupName = appSecurityGroup.name;
+let dbSecurityGroup = new aws.ec2.SecurityGroup("db-security-group", {
+  vpcId: vpc.id,
+  description: "Database security group",
+  ingress: [
+    {
+      protocol: "tcp",
+      fromPort: mysql_port, // Change port depending on the RDBMS you're using (5432 for PostgreSQL)
+      toPort: mysql_port,
+      securityGroups: [appSecurityGroup.id], // Traffic source is the app security group
+    },
+  ],
+  egress: [
+    {
+      // Restricting access to internet
+      protocol: "-1",
+      fromPort: 0,
+      toPort: 0,
+      cidrBlocks: [internetgtCidr],
+    },
+    {
+      fromPort: App_port,
+      toPort: App_port,
+      protocol: "tcp",
+      securityGroups: [appSecurityGroup.id],
+    },
+  ],
+});
+
+exports.dbSecurityGroupName = dbSecurityGroup.name;
+
+// Assuming a list of subnetIds for your private subnets.
+//let privateSubnetsIds = ["privateSubnets"]; // replace with your actual subnet ids
+
+let privateSubnetIds = privateSubnets.map((subnet) => subnet.id);
+// Create RDS DB subnet group
+const dbSubnetGroup = new aws.rds.SubnetGroup("mydbsubnetgroup", {
+  subnetIds: privateSubnetIds,
+});
+
+const dbParameterGroup = new aws.rds.ParameterGroup("db-param-group", {
+  family: "mysql8.0",
+  vpcId: vpc.id,
+  description: "parameter group", // Change this depending on your database (postgresql9.3 for PostgreSQL, aurora-mysql5.7 for Aurora MySQL, etc.)
+  parameters: [
+    {
+      name: "character_set_server",
+      value: "utf8",
+    },
+  ],
+});
+
+const rds_instance = new aws.rds.Instance("csye6225-rds-instance", {
+  allocatedStorage: 20,
+  dbName: db_name,
+  engine: db_engine,
+  engineVersion: db_engine_V,
+  instanceClass: "db.t2.micro",
+  parameterGroupName: dbParameterGroup.name,
+  dbSubnetGroupName: dbSubnetGroup.name,
+  vpcSecurityGroupIds: [dbSecurityGroup.id],
+  password: db_pass,
+  skipFinalSnapshot: true,
+  username: db_username,
+  publiclyAccessible: false,
+  multiAz: false,
+});
+
+exports.instanceName = rds_instance.id;
+
+const dbConfig = pulumi.interpolate`#!/bin/bash
+  username=${db_username};
+  password=${db_pass};
+  address=${rds_instance.address};
+  dialect=${db_engine};
+  name=${db_name};
+  cd /opt/csye6225
+  sudo touch .env
+  echo "DB_USER=\${username}" >> .env
+  echo "DB_PASSWORD=\${password}" >> .env
+  echo "DB_HOST=\${address}" >> .env
+  echo "DB_DIALECT=\${dialect}" >> .env
+  echo "DB_NAME=\${name}" >> .env
+
+  sudo chown -R csye6225:csye6225 /opt/csye6225`;
 
 const publicSubnetID = publicSubnets.publicSubnet;
 // Creating the EC2 instance
@@ -195,6 +294,7 @@ const instance = new aws.ec2.Instance("webapp", {
   keyName: keyName,
   // Associate public IP address with instance within the VPC
   associatePublicIpAddress: true,
+  userData: dbConfig,
   tags: {
     Name: "Cloud_WebApp_Instance",
   },

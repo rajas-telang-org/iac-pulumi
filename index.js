@@ -2,6 +2,7 @@
 const pulumi = require("@pulumi/pulumi");
 const aws = require("@pulumi/aws");
 const awsx = require("@pulumi/awsx");
+const route53 = require("@pulumi/aws/route53");
 
 const config = new pulumi.Config();
 
@@ -41,6 +42,10 @@ const db_engine = config.require("db-engine");
 const db_engine_V = config.require("db-engine_version");
 const db_pass = config.require("db-password");
 const db_username = config.require("db-username");
+const domainName = config.require("domain-Name");
+const record_type = config.require("record-type");
+const policy_type = config.require("policy-type");
+const record_ttl = config.require("record-ttl");
 
 const vpc = new aws.ec2.Vpc(VPcNAme, {
   cidrBlock: VPcCidr,
@@ -184,6 +189,12 @@ let appSecurityGroup = new aws.ec2.SecurityGroup("app-security-group", {
       protocol: "tcp",
       cidrBlocks: [internetgtCidr],
     },
+    {
+      protocol: "tcp",
+      fromPort: HTTPS_port,
+      toPort: HTTPS_port,
+      cidrBlocks: [internetgtCidr],
+    },
   ],
 });
 
@@ -226,6 +237,7 @@ let privateSubnetIds = privateSubnets.map((subnet) => subnet.id);
 const dbSubnetGroup = new aws.rds.SubnetGroup("mydbsubnetgroup", {
   subnetIds: privateSubnetIds,
 });
+const publicSubnetID = publicSubnets.publicSubnet;
 
 const dbParameterGroup = new aws.rds.ParameterGroup("db-param-group", {
   family: "mysql8.0",
@@ -271,9 +283,47 @@ const dbConfig = pulumi.interpolate`#!/bin/bash
   echo "DB_DIALECT=\${dialect}" >> .env
   echo "DB_NAME=\${name}" >> .env
 
-  sudo chown -R csye6225:csye6225 /opt/csye6225`;
+  sudo chown -R csye6225:csye6225 /opt/csye6225
+  
+  sudo touch /var/log/csye6225.log
+  sudo touch /var/log/csye6225err.log
+  sudo chown csye6225:csye6225 /var/log/csye6225.log
+  sudo chown csye6225:csye6225 /var/log/csye6225.log
 
-const publicSubnetID = publicSubnets.publicSubnet;
+
+  sudo amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent.json
+
+  sudo systemctl enable amazon-cloudwatch-agent
+  sudo systemctl start amazon-cloudwatch-agent`;
+
+const cloudWatchRole = new aws.iam.Role("cloudWatchRole", {
+  assumeRolePolicy: JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Action: "sts:AssumeRole",
+        Principal: {
+          Service: "ec2.amazonaws.com",
+        },
+        Effect: "Allow",
+        Sid: "",
+      },
+    ],
+  }),
+});
+
+const cloudWatchRolePolicyAttachment = new aws.iam.RolePolicyAttachment(
+  "CloudWatchAgentServerPolicyAttachment",
+  {
+    role: cloudWatchRole.name,
+    policyArn: policy_type, // This Policy allows the CloudWatch Agent to perform specific actions.
+  }
+);
+
+let instanceProfile = new aws.iam.InstanceProfile("InstanceProfile", {
+  role: cloudWatchRole.name,
+});
+
 // Creating the EC2 instance
 const instance = new aws.ec2.Instance("webapp", {
   // Use custom AMI provided through configuration
@@ -294,8 +344,34 @@ const instance = new aws.ec2.Instance("webapp", {
   keyName: keyName,
   // Associate public IP address with instance within the VPC
   associatePublicIpAddress: true,
+  iamInstanceProfile: instanceProfile.name,
   userData: dbConfig,
   tags: {
     Name: "Cloud_WebApp_Instance",
   },
 });
+
+// Get the Zone information using the domain name
+const zone = aws.route53.getZone({ name: domainName }, { async: true });
+
+// Get the hosted zone by ID.
+const zoneId = aws.route53
+  .getZone({ name: domainName })
+  .then((zone) => zone.zoneId);
+
+// Output the Zone ID
+exports.zoneId = zone.then((z) => z.zoneId);
+// Get the public IP address of the instance.
+const instancePublicIp = instance.publicIp;
+
+// Create/update the A record.
+const record = new aws.route53.Record(`A-record-domain`, {
+  name: domainName,
+  type: record_type,
+  ttl: record_ttl,
+  records: [instancePublicIp],
+  zoneId: zoneId,
+});
+
+// Export the domain name
+exports.domainName = record.name;

@@ -19,7 +19,7 @@ config:
   iac-pulumi:http-port: 80
   iac-pulumi:https-port: 443
   iac-pulumi:app-port: 8080
-  iac-pulumi:ami-ID: ami-0e5aec833cd4a8215
+  iac-pulumi:ami-ID: ami-05566bba85fc379a5
   iac-pulumi:key-name: ssh-key
   iac-pulumi:instance-type: t2.micro
   iac-pulumi:mysql-port: 3306
@@ -28,4 +28,7 @@ config:
   iac-pulumi:db-engine_version: 8.0.33
   iac-pulumi:db-password: Rajas281097
   iac-pulumi:db-username: rajas
-
+  iac-pulumi:domain-Name: dev.rajastelang.me
+  iac-pulumi:record-type: A
+  iac-pulumi:policy-type: arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+  iac-pulumi:record-ttl: 60

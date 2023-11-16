@@ -1,4 +1,4 @@
-encryptionsalt: v1:uBYHcKjA9vk=:v1:ovt8QfDrF/C/Pm30:ooCO0cHVRzmr53JkqSeKEe/r9YgVog==
+encryptionsalt: v1:HOpsJ2yAelY=:v1:CT0VGf9RwsopS93A:dBdYuPWic93p0xUx0b5lIUbUIwNERg==
 config:
   aws:profile: dev
   aws:region: us-east-1
@@ -19,7 +19,7 @@ config:
   iac-pulumi:http-port: 80
   iac-pulumi:https-port: 443
   iac-pulumi:app-port: 8080
-  iac-pulumi:ami-ID: ami-08c6860a280184bd7
+  iac-pulumi:ami-ID: ami-086452f734b54d59c
   iac-pulumi:key-name: ssh-key
   iac-pulumi:instance-type: t2.micro
   iac-pulumi:mysql-port: 3306

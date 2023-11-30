@@ -4,7 +4,7 @@ const aws = require("@pulumi/aws");
 const awsx = require("@pulumi/awsx");
 const route53 = require("@pulumi/aws/route53");
 const { LoadBalancer } = require("@pulumi/aws/alb");
-
+const gcp = require("@pulumi/gcp");
 const config = new pulumi.Config();
 
 const VPcCidr = config.require("vpc-cidr-block");
@@ -47,6 +47,7 @@ const domainName = config.require("domain-Name");
 const record_type = config.require("record-type");
 const policy_type = config.require("policy-type");
 const record_ttl = config.require("record-ttl");
+const project_id = config.require("gcp-accountId");
 
 const vpc = new aws.ec2.Vpc(VPcNAme, {
   cidrBlock: VPcCidr,
@@ -279,37 +280,29 @@ const rds_instance = new aws.rds.Instance("csye6225-rds-instance", {
 });
 
 exports.instanceName = rds_instance.id;
+const bucket = new gcp.storage.Bucket("my-bucket", {
+  project: project_id,
+  location: "US",
+});
 
-const dbConfig = pulumi.interpolate`#!/bin/bash
-  username=${db_username};
-  password=${db_pass};
-  address=${rds_instance.address.apply((v) => `prefix${v}suffix`)};
-  dialect=${db_engine};
-  name=${db_name};
-  cd /opt/csye6225
-  sudo touch .env
-  echo "DB_USER=\${username}" >> .env
-  echo "DB_PASSWORD=\${password}" >> .env
-  echo "DB_HOST=\${address}" >> .env
-  echo "DB_DIALECT=\${dialect}" >> .env
-  echo "DB_NAME=\${name}" >> .env
+const serviceAccount = new gcp.serviceaccount.Account("my-service-account", {
+  accountId: "my-service-account-id",
+  project: project_id,
+});
 
-  sudo chown -R csye6225:csye6225 /opt/csye6225
-  
-  sudo touch /var/log/csye6225.log
-  sudo touch /var/log/csye6225err.log
-  sudo chown csye6225:csye6225 /var/log/csye6225.log
-  sudo chown csye6225:csye6225 /var/log/csye6225.log
+const serviceAccountKey = new gcp.serviceaccount.Key("my-service-account-key", {
+  serviceAccountId: serviceAccount.name,
+  publicKeyType: "TYPE_X509_PEM_FILE",
+  serviceAccountEmail: serviceAccount.email,
+});
 
-
-  sudo amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent.json
-
-  sudo systemctl enable amazon-cloudwatch-agent
-  sudo systemctl start amazon-cloudwatch-agent`;
-
-const userdata64 = pulumi
-  .output(dbConfig)
-  .apply((text) => Buffer.from(text).toString("base64"));
+const iamBinding = serviceAccount.email.apply((email) => {
+  return new gcp.storage.BucketIAMBinding("my-bucket-iam-binding", {
+    bucket: bucket.name,
+    role: "roles/storage.objectCreator",
+    members: [`serviceAccount:${email}`],
+  });
+});
 
 const cloudWatchRole = new aws.iam.Role("cloudWatchRole", {
   assumeRolePolicy: JSON.stringify({
@@ -330,13 +323,158 @@ const cloudWatchRolePolicyAttachment = new aws.iam.RolePolicyAttachment(
   "CloudWatchAgentServerPolicyAttachment",
   {
     role: cloudWatchRole.name,
-    policyArn: policy_type, // This Policy allows the CloudWatch Agent to perform specific actions.
+    policyArn: policy_type,
   }
 );
 
 let instanceProfile = new aws.iam.InstanceProfile("InstanceProfile", {
   role: cloudWatchRole.name,
 });
+
+// Create an AWS SNS Topic
+const topic = new aws.sns.Topic("myTopic", {
+  // contentBasedDeduplication: true,
+  // fifoTopic: true,
+});
+
+//Export the Topic ARN so it's easily accessible.
+exports.topicArn = topic.arn;
+
+const snsRole = new aws.iam.Role("myTopicRole", {
+  assumeRolePolicy: JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Action: "sts:AssumeRole",
+        Effect: "Allow",
+        Principal: {
+          Service: "ec2.amazonaws.com",
+        },
+      },
+    ],
+  }),
+});
+
+const topicpublishPolicy = new aws.sns.TopicPolicy("myTopicPolicy", {
+  arn: topic.arn,
+  policy: snsRole.arn.apply((arn) =>
+    JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "SNS:Publish",
+          Effect: "Allow",
+          Resource: topic.arn,
+          Principal: {
+            AWS: arn,
+          },
+        },
+      ],
+    })
+  ),
+});
+const snsPolicy = new aws.iam.Policy("snsPolicy", {
+  description: "A policy that allows SNS access",
+  policy: {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Action: "sns:Publish",
+        Effect: "Allow",
+        Resource: topic.arn,
+      },
+    ],
+  },
+});
+const snsRolePolicyAttachment = new aws.iam.RolePolicyAttachment(
+  "myTopicRolePolicyAttachment",
+  {
+    role: cloudWatchRole.name,
+    policyArn: snsPolicy.arn,
+  }
+);
+
+// const policyAttachment = new aws.iam.PolicyAttachment(
+//   "role-policy-attachment",
+//   {
+//     roles: [snsRole.name],
+//     policyArn: "arn:aws:iam::aws:policy/AmazonSNSFullAccess",
+//   }
+// );
+const base64EncodedKey = serviceAccountKey.privateKey.apply((key) =>
+  Buffer.from(key).toString("ascii")
+);
+
+const mySecret = new aws.secretsmanager.Secret("ServiceAccountKey", {
+  name: "service-account-key",
+});
+
+const secretsManagerPolicy = mySecret.arn.apply((arn) => {
+  return new aws.iam.Policy("secretsManagerPolicy", {
+    description: "IAM policy for Lambda to access secrets in Secrets Manager",
+    policy: JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "secretsmanager:GetSecretValue",
+          Effect: "Allow",
+          Resource: arn, // Use the resolved ARN of your secret
+        },
+      ],
+    }),
+  });
+});
+
+const policyAttachmentSecretsManager = secretsManagerPolicy.apply((policy) => {
+  return new aws.iam.RolePolicyAttachment(
+    "myLambdaRoleSecretsManagerAttachment",
+    {
+      role: lambdaRole,
+      policyArn: policy.arn,
+    }
+  );
+});
+
+const mySecretVersion = new aws.secretsmanager.SecretVersion(
+  "myServiceAccountKeyVersion",
+  {
+    secretId: mySecret.id,
+    secretString: base64EncodedKey,
+  }
+);
+
+const dbConfig = pulumi.interpolate`#!/bin/bash
+  username=${db_username};
+  password=${db_pass};
+  address=${rds_instance.address.apply((v) => `${v}`)};
+  dialect=${db_engine};
+  name=${db_name};
+  SNS_TOPIC_ARN=${topic.arn};
+  cd /opt/csye6225
+  sudo touch .env
+  echo "DB_USER=\${username}" >> .env
+  echo "DB_PASSWORD=\${password}" >> .env
+  echo "DB_HOST=\${address}" >> .env
+  echo "DB_DIALECT=\${dialect}" >> .env
+  echo "DB_NAME=\${name}" >> .env
+  echo "SNS_TOPIC_ARN=\${SNS_TOPIC_ARN}" >> .env
+
+  sudo chown -R csye6225:csye6225 /opt/csye6225
+  
+  sudo touch /var/log/csye6225.log
+  sudo touch /var/log/csye6225err.log
+  sudo chown csye6225:csye6225 /var/log/csye6225.log
+  sudo chown csye6225:csye6225 /var/log/csye6225.log
+
+
+  sudo amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent.json
+
+  sudo systemctl enable amazon-cloudwatch-agent
+  sudo systemctl start amazon-cloudwatch-agent`;
+
+const userdata64 = pulumi
+  .output(dbConfig)
+  .apply((text) => Buffer.from(text).toString("base64"));
 
 // Define launch template
 const launchTemplate = new aws.ec2.LaunchTemplate("launchTemplate", {
@@ -432,7 +570,7 @@ const scaleUpAlarm = new aws.cloudwatch.MetricAlarm("scaleUpAlarm", {
   statistic: "Average",
   period: 60,
   evaluationPeriods: 5,
-  threshold: 3,
+  threshold: 5,
   comparisonOperator: "GreaterThanThreshold",
   alarmActions: [scaleUpPolicy.arn],
   dimensions: {
@@ -456,7 +594,7 @@ const scaleDownAlarm = new aws.cloudwatch.MetricAlarm("scaleDownAlarm", {
   statistic: "Average",
   period: 60,
   evaluationPeriods: 5,
-  threshold: 1,
+  threshold: 3,
   comparisonOperator: "LessThanThreshold",
   alarmActions: [scaleDownPolicy.arn],
   dimensions: {
@@ -490,3 +628,114 @@ const record = new aws.route53.Record("A-record-domain", {
 
 // Export the domain name and public IP
 exports.domainName = record.name;
+// Create DynamoDB table.
+const ddbTable = new aws.dynamodb.Table("my-dynamo-table", {
+  attributes: [
+    {
+      name: "id",
+      type: "S",
+    },
+  ],
+  hashKey: "id",
+  readCapacity: 5,
+  writeCapacity: 5,
+});
+
+// We need to define IAM policies that Lambda function will assume.
+let lambdaRole = new aws.iam.Role("lambdaRole", {
+  assumeRolePolicy: JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Action: "sts:AssumeRole",
+        Principal: {
+          Service: "lambda.amazonaws.com",
+        },
+        Effect: "Allow",
+        Sid: "",
+      },
+    ],
+  }),
+});
+
+// new aws.iam.RolePolicyAttachment("lambdaRolePolicyAttachment", {
+//   role: lambdaRole.name,
+//   policyArn: aws.iam.ManagedPolicies.AWSLambdaFullAccess,
+// });
+const lambdaRolePolicyAttachment = new aws.iam.RolePolicyAttachment(
+  "lambdaRolePolicyAttachment",
+  {
+    role: lambdaRole,
+    policyArn:
+      "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+  }
+);
+
+const dynamoDbPolicy = new aws.iam.Policy("dynamoDbPolicy", {
+  policy: pulumi.output(ddbTable.name).apply((tableName) =>
+    JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+          ],
+          Effect: "Allow",
+          Resource: `arn:aws:dynamodb:*:*:table/${tableName}`,
+        },
+      ],
+    })
+  ),
+});
+
+const dynamoDbPolicyAttachment = new aws.iam.RolePolicyAttachment(
+  "dynamoDbPolicyAttachment",
+  {
+    role: lambdaRole,
+    policyArn: dynamoDbPolicy.arn,
+  }
+);
+
+const lambda = new aws.lambda.Function("mylambda", {
+  code: new pulumi.asset.AssetArchive({
+    ".": new pulumi.asset.FileArchive("serverless.zip"),
+  }),
+  handler: "index.handler",
+  function_name: "index.js",
+  runtime: "nodejs16.x",
+  role: lambdaRole.arn,
+  environment: {
+    variables: {
+      GoogleAccessKey: serviceAccountKey.id,
+      GoogleBucket_Name: bucket.name,
+      Email_API: "9cd326d12a06bb011e144deff0ae7c7f-30b58138-6c97bb45",
+      MAIL_DOMAIN: "rajastelang.me",
+      SECRET_ARN: mySecret.arn,
+      project_id: project_id,
+      tableName: ddbTable.name,
+    },
+  },
+});
+
+const permission = new aws.lambda.Permission("mylambdaPermission", {
+  action: "lambda:InvokeFunction",
+  function: lambda.name,
+  principal: "sns.amazonaws.com",
+  sourceArn: topic.arn,
+});
+
+const topicSubscription = new aws.sns.TopicSubscription("myTopicSubscription", {
+  endpoint: lambda.arn,
+  protocol: "lambda",
+  topic: topic.arn,
+});
+
+exports = {
+  ddbTable: ddbTable.name,
+  lambda: lambda.name,
+  bucket: bucket.name,
+  serviceAccount: serviceAccount.accountId,
+};

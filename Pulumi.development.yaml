@@ -19,7 +19,7 @@ config:
   iac-pulumi:http-port: 80
   iac-pulumi:https-port: 443
   iac-pulumi:app-port: 8080
-  iac-pulumi:ami-ID: ami-086452f734b54d59c
+  iac-pulumi:ami-ID: ami-0abfae1b40a3821f0
   iac-pulumi:key-name: ssh-key
   iac-pulumi:instance-type: t2.micro
   iac-pulumi:mysql-port: 3306
@@ -32,3 +32,4 @@ config:
   iac-pulumi:record-type: A
   iac-pulumi:policy-type: arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
   iac-pulumi:record-ttl: 60
+  iac-pulumi:gcp-accountId: boxwood-pilot-405419

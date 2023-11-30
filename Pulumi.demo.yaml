@@ -32,3 +32,4 @@ config:
   iac-pulumi:record-type: A
   iac-pulumi:policy-type: arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
   iac-pulumi:record-ttl: 60
+  iac-pulumi:gcp-accountId: rajas-demo

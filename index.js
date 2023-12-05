@@ -48,6 +48,7 @@ const record_type = config.require("record-type");
 const policy_type = config.require("policy-type");
 const record_ttl = config.require("record-ttl");
 const project_id = config.require("gcp-accountId");
+const certificate_arn = config.require("certificate-arn");
 
 const vpc = new aws.ec2.Vpc(VPcNAme, {
   cidrBlock: VPcCidr,
@@ -169,12 +170,6 @@ const loadBalancerSecurityGroup = new aws.ec2.SecurityGroup(
       },
     ],
     ingress: [
-      {
-        protocol: "tcp",
-        fromPort: HTTP_port,
-        toPort: HTTP_port,
-        cidrBlocks: [internetgtCidr],
-      },
       {
         protocol: "tcp",
         fromPort: HTTPS_port,
@@ -406,7 +401,7 @@ const base64EncodedKey = serviceAccountKey.privateKey.apply((key) =>
 );
 
 const mySecret = new aws.secretsmanager.Secret("ServiceAccountKey", {
-  name: "service-account-key",
+  name: "my-service-account-key-2",
 });
 
 const secretsManagerPolicy = mySecret.arn.apply((arn) => {
@@ -478,6 +473,7 @@ const userdata64 = pulumi
 
 // Define launch template
 const launchTemplate = new aws.ec2.LaunchTemplate("launchTemplate", {
+  name: "asg-launchTemplate",
   imageId: amiID, // Replace with your custom AMI ID
   instanceType: instanceType,
   keyName: keyName, // Replace with your AWS keyname
@@ -518,6 +514,7 @@ const targetGroup = new aws.lb.TargetGroup("targetGroup", {
 // Create EC2 Auto Scaling Group
 const autoScalingGroup = new aws.autoscaling.Group("autoScalingGroup", {
   desiredCapacity: 1,
+  name: "asg-autoscalinggroup",
   maxSize: 3,
   minSize: 1,
   // cooldown: 60,
@@ -525,6 +522,7 @@ const autoScalingGroup = new aws.autoscaling.Group("autoScalingGroup", {
   targetGroupArns: [targetGroup.arn],
   launchTemplate: {
     id: launchTemplate.id,
+    version: "$Latest",
   },
   tags: [
     {
@@ -547,8 +545,10 @@ const loadbalancer = new aws.lb.LoadBalancer("LoadBalancer", {
 
 const listener = new aws.lb.Listener("listener", {
   loadBalancerArn: loadbalancer.arn,
-  port: HTTP_port,
-  protocol: "HTTP",
+  port: HTTPS_port,
+  protocol: "HTTPS",
+  sslPolicy: "ELBSecurityPolicy-2016-08",
+  certificateArn: certificate_arn,
   defaultActions: [
     {
       type: "forward",

@@ -19,7 +19,7 @@ config:
   iac-pulumi:http-port: 80
   iac-pulumi:https-port: 443
   iac-pulumi:app-port: 8080
-  iac-pulumi:ami-ID: ami-08c6860a280184bd7
+  iac-pulumi:ami-ID: ami-05dc2113d5a3b6952
   iac-pulumi:key-name: ssh-key
   iac-pulumi:instance-type: t2.micro
   iac-pulumi:mysql-port: 3306

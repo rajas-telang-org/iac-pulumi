@@ -38,3 +38,6 @@ After deployment, view the created resources:
 
 - 'pulumi destroy' to Cleanup
   After destroying the stack, you can remove the stack:
+
+##command to import SSL certificate
+aws acm import-certificate --certificate fileb:///Users/rajastelang/Desktop/ssl/demo_rajastelang_me/demo_rajastelang_me.crt --private-key fileb:///Users/rajastelang/Desktop/ssl/rajasprivate.pem --certificate-chain fileb:///Users/rajastelang/Desktop/ssl/demo_rajastelang_me/demo_rajastelang_me.ca-bundle
